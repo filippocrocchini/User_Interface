@@ -11,9 +11,9 @@ Layout:
 ![](layout_illustrations-0001%201.png)
 - Z-Index
 - Border and Padding
-- [](Concatenation%20and%20Alignment.md)
-- [](Positioning%20Method.md)
-- [](Sizing%20Method.md)
+- [Concatenation and Alignment](Concatenation%20and%20Alignment.md)
+- [Positioning Method](Positioning%20Method.md)
+- [Sizing Method](Sizing%20Method.md)
 
 ### Node Lifetime
 
