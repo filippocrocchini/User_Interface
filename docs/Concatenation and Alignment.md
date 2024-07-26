@@ -2,10 +2,10 @@ These following illustrations pair the types of concatenation methods available 
 
 Alignment works on content + padding + border + margin. Same as html/css flexbox. 
 #### TOP_TO_BOTTOM:
-![[layout_illustrations-0001.png]]
+![[images/layout_illustrations-0001.png]]
 #### RIGHT_TO_LEFT:
-![[layout_illustrations-0004.png]]
+![[images/layout_illustrations-0004.png]]
 #### LEFT_TO_RIGHT:
-![[layout_illustrations-0003.png]]
+![[images/layout_illustrations-0003.png]]
 #### BOTTOM_TO_TOP:
-![[layout_illustrations-0002.png]]
+![[images/layout_illustrations-0002.png]]
