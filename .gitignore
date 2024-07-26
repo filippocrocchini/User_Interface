@@ -1,0 +1,8 @@
+.obsidian/
+.build/
+
+*.exe
+*.pdb
+*leo 
+
+examples/
