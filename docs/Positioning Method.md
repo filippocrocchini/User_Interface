@@ -1,4 +1,4 @@
-![[Pasted image 20240515220236.png]]
+![](images/Pasted%20image%2020240515220236.png)
 
 #### AUTO:
 The node will be positioned using the concatenation rules, alignment and so on.

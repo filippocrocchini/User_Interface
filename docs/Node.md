@@ -8,7 +8,7 @@ Graphical:
 - Border Color
 
 Layout:
-![[layout_illustrations-0001 1.png]]
+![](layout_illustrations-0001%201.png)
 - Z-Index
 - Border and Padding
 - [[Concatenation and Alignment]]

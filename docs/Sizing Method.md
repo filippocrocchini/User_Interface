@@ -1,4 +1,4 @@
-![[Pasted image 20240515221812.png]]
+![](images/Pasted%20image%2020240515221812.png)
 #### AUTO:
 The size of the parent node will be set automatically to the content size.
 
