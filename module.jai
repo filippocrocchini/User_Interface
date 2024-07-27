@@ -1,18 +1,10 @@
-#module_parameters(Texture : Type, Color: Type);
-
 groups         : [..] Node_Group;
 prepared_nodes : [..] Glyph_Node;
 node_stack     : [..] int;
 id_stack       : [..] u64;
 
-next_node   : Glyph_Node;
-node_states : Table(u64, Persistent_State);
-
-Persistent_State :: struct 
-{
-    last_position_min: Vector2;
-    last_size:         Vector2;
-}
+default_node : Glyph_Node = .{ ignore_locks = true };
+next_node    : Glyph_Node;
 
 Node_Group_ID :: struct 
 {
@@ -68,7 +60,10 @@ Node_Locks :: struct
     alignment         : bool;
     content_alignment : bool;
     concatenation     : bool;
+    on_commit         : bool;
 }
+
+Node_On_Commit_Function :: #type (node: *Glyph_Node) -> void;
 
 Glyph_Node :: struct 
 {
@@ -77,13 +72,6 @@ Glyph_Node :: struct
 
     sizing               : Sizing_Method;
     content_size         : Vector2;
-
-    color           : Color;
-    texture         : *Texture;
-    texture_min     : Vector2;
-    texture_size    : Vector2;
-
-    border_color : Color; // = .{0,0,0,100};
 
     border  : Directional_Size;
     padding : Directional_Size;
@@ -94,9 +82,12 @@ Glyph_Node :: struct
     content_vertical_alignment   : float;
     content_horizontal_alignment : float;
 
-    concatenation         : Concatenation;
+    concatenation : Concatenation;
 
-    locks : Node_Locks;
+    on_commit : Node_On_Commit_Function;
+
+    ignore_locks : bool;
+    locks        : Node_Locks;
 
     // Set automatically 
     
@@ -104,121 +95,226 @@ Glyph_Node :: struct
     z_index : float;
 
     persistent_id : u64;
+    index         : u64;
+
     children      := Node_Group_ID.{-1};
 }
 
-set_concatenation :: inline (concatenation : Concatenation)
+get_default_node :: inline () -> *Glyph_Node
 {
-    if next_node.locks.concatenation then return;
-    next_node.locks.concatenation = true;
-
-    next_node.concatenation = concatenation;
+    return *default_node;
 }
 
-set_alignment :: inline (horizontal : float, vertical : float)
+get_node :: (node_id: int) -> *Glyph_Node
 {
-    if next_node.locks.alignment then return;
-    next_node.locks.alignment = true;
-
-    next_node.vertical_alignment   = vertical;
-    next_node.horizontal_alignment = horizontal;
-}
-
-set_content_alignment :: inline (horizontal : float, vertical : float)
-{
-    if next_node.locks.content_alignment then return;
-    next_node.locks.content_alignment = true;
-
-    next_node.content_vertical_alignment   = vertical;
-    next_node.content_horizontal_alignment = horizontal;
-}
-
-set_margin :: inline (margin_left: float, margin_right: float, margin_top: float, margin_bottom: float)
-{
-    if next_node.locks.margin then return;
-    next_node.locks.margin = true;
-
-    next_node.margin = .{left = margin_left, right = margin_right, top = margin_top, bottom = margin_bottom};
-}
-
-set_margin :: inline (margin: float)
-{
-    set_margin(margin, margin, margin, margin);
-}
-
-set_padding :: inline (padding_left: float, padding_right: float, padding_top: float, padding_bottom: float)
-{
-    if next_node.locks.padding then return;
-    next_node.locks.padding = true;
-
-    next_node.padding = .{left = padding_left, right = padding_right, top = padding_top, bottom = padding_bottom};
-}
-
-set_padding :: inline (padding: float)
-{
-    set_padding(padding, padding, padding, padding);
-}
-
-set_border :: inline (border_left: float, border_right: float, border_top: float, border_bottom: float, border_color: Color)
-{
-    if next_node.locks.border then return;
-    next_node.locks.border = true;
-
-    next_node.border_color = border_color;
-    next_node.border = .{left = border_left, right = border_right, top = border_top, bottom = border_bottom};
-}
-
-set_border :: inline (border: float, border_color: Color)
-{
-    set_border(border, border, border, border, border_color);
-}
-
-set_texture :: inline (texture: *Texture, texture_min: Vector2, texture_size: Vector2, color: Color)
-{
-    if next_node.locks.texture then return;
-    next_node.locks.texture = true;
-
-    next_node.texture      = texture;
-    next_node.texture_min  = texture_min;
-    next_node.texture_size = texture_size;
-    next_node.color        = color;
-}
-
-set_content_size :: inline (sizing: Sizing_Method, content_size: Vector2 = .{}, node_id: int = -1)
-{
-    node : *Glyph_Node;
-    
     if node_id >= 0
     {
-        node = *prepared_nodes[node_id];
+        return *prepared_nodes[node_id];
     }
-    else 
+
+    return *next_node;
+}
+
+set_concatenation :: inline (concatenation : Concatenation, node : *Glyph_Node = null)
+{
+    the_node := node; 
+    if !node 
     {
-        node = *next_node;
+        the_node = *next_node;
     }
 
-    if node.locks.content_size then return;
-    node.locks.content_size = true;
+    if !the_node.ignore_locks
+    {
+        if the_node.locks.concatenation then return;
+        the_node.locks.concatenation = true;
+    }
 
-    node.sizing = sizing;
+    the_node.concatenation = concatenation;
+}
+
+set_alignment :: inline (horizontal : float, vertical : float, node : *Glyph_Node = null)
+{
+    the_node := node; 
+    if !node 
+    {
+        the_node = *next_node;
+    }
+
+    if !the_node.ignore_locks
+    {
+        if the_node.locks.alignment then return;
+        the_node.locks.alignment = true;
+    }
+
+    the_node.vertical_alignment   = vertical;
+    the_node.horizontal_alignment = horizontal;
+}
+
+set_content_alignment :: inline (horizontal : float, vertical : float, node : *Glyph_Node = null)
+{
+    the_node := node; 
+    if !node 
+    {
+        the_node = *next_node;
+    }
+
+    if !the_node.ignore_locks
+    {
+        if the_node.locks.content_alignment then return;
+        the_node.locks.content_alignment = true;
+    }
+
+    the_node.content_vertical_alignment   = vertical;
+    the_node.content_horizontal_alignment = horizontal;
+}
+
+set_margin :: inline (margin_left: float, margin_right: float, margin_top: float, margin_bottom: float, node : *Glyph_Node = null)
+{
+    the_node := node; 
+    if !node 
+    {
+        the_node = *next_node;
+    }
+
+    if !the_node.ignore_locks
+    {
+        if the_node.locks.margin then return;
+        the_node.locks.margin = true;
+    }
+
+    the_node.margin = .{left = margin_left, right = margin_right, top = margin_top, bottom = margin_bottom};
+}
+
+set_margin :: inline (margin: float, node : *Glyph_Node = null)
+{
+    set_margin(margin, margin, margin, margin, node = node);
+}
+
+set_padding :: inline (padding_left: float, padding_right: float, padding_top: float, padding_bottom: float, node : *Glyph_Node = null)
+{
+    the_node := node; 
+    if !node 
+    {
+        the_node = *next_node;
+    }
+
+    if !the_node.ignore_locks
+    {
+        if the_node.locks.padding then return;
+        the_node.locks.padding = true;
+    }
+
+    the_node.padding = .{left = padding_left, right = padding_right, top = padding_top, bottom = padding_bottom};
+}
+
+set_padding :: inline (padding: float, node : *Glyph_Node = null)
+{
+    set_padding(padding, padding, padding, padding, node = node);
+}
+
+set_border :: inline (border_left: float, border_right: float, border_top: float, border_bottom: float, node : *Glyph_Node = null)
+{
+    the_node := node; 
+    if !node 
+    {
+        the_node = *next_node;
+    }
+
+    if !the_node.ignore_locks
+    {
+        if the_node.locks.border then return;
+        the_node.locks.border = true;
+    }
+
+    the_node.border = .{left = border_left, right = border_right, top = border_top, bottom = border_bottom};
+}
+
+set_border :: inline (border: float, node : *Glyph_Node = null)
+{
+    set_border(border, border, border, border, node = node);
+}
+
+/*
+set_texture :: inline (texture: *Texture, texture_min: Vector2, texture_size: Vector2, color: Color, node : *Glyph_Node = null)
+{
+    the_node := node; 
+    if !node 
+    {
+        the_node = *next_node;
+    }
+
+    if !the_node.ignore_locks
+    {
+        if the_node.locks.texture then return;
+        the_node.locks.texture = true;
+    }
+
+    the_node.texture      = texture;
+    the_node.texture_min  = texture_min;
+    the_node.texture_size = texture_size;
+    the_node.color        = color;
+}
+*/
+
+set_content_size :: inline (sizing: Sizing_Method, content_size: Vector2 = .{}, node : *Glyph_Node = null)
+{
+    the_node := node; 
+    if !node 
+    {
+        the_node = *next_node;
+    }
+
+    if !the_node.ignore_locks
+    {
+        if the_node.locks.content_size then return;
+        the_node.locks.content_size = true;
+    }
+
+    the_node.sizing = sizing;
     
     if sizing == .FIXED
     {
-        node.content_size = content_size;
+        the_node.content_size = content_size;
     }
 }
 
-set_position :: inline (positioning: Positioning_Method, position: Vector2 = .{})
+set_position :: inline (positioning: Positioning_Method, position: Vector2 = .{}, node : *Glyph_Node = null)
 {
-    if next_node.locks.position then return;
-    next_node.locks.position = true;
+    the_node := node; 
+    if !node 
+    {
+        the_node = *next_node;
+    }
 
-    next_node.positioning = positioning;
+    if !the_node.ignore_locks
+    {
+        if the_node.locks.position then return;
+        the_node.locks.position = true;
+    }
+
+    the_node.positioning = positioning;
 
     if positioning != .AUTO
     {
-        next_node.position_min = position;
+        the_node.position_min = position;
     }
+}
+
+set_on_commit_callback :: inline (on_commit : Node_On_Commit_Function, node : *Glyph_Node = null)
+{
+    the_node := node; 
+    if !node 
+    {
+        the_node = *next_node;
+    }
+
+    if !the_node.ignore_locks
+    {
+        if the_node.locks.on_commit then return;
+        the_node.locks.on_commit = true;
+    }
+
+    the_node.on_commit = on_commit;
 }
 
 add_to_group :: (group_id: *Node_Group_ID, node_index: int)
@@ -291,15 +387,16 @@ begin_node :: () -> int
     }
     
     array_add(*node_stack, prepared_nodes.count);
-    
     array_add(*prepared_nodes, next_node);
     
-    next_node = .{};
+    next_node       = default_node;
+    next_node.locks = .{};
 
     self_index := prepared_nodes.count - 1;
     self       := *prepared_nodes[self_index];
 
     self.persistent_id = get_id();
+    self.index         = xx self_index;
 
     if parent_index >= 0
     {
@@ -514,63 +611,11 @@ commit_prepared_nodes :: ()
 
     for * prepared_nodes
     {
-        persistent_state := table_find_pointer(*node_states, it.persistent_id);
-        
-        if persistent_state
-        {
-            persistent_state.last_position_min = it.position_min;
-            persistent_state.last_size         = it.size;
-        }
-
         if it.size.x == 0 || it.size.y == 0 continue; 
 
-        it.position_min.x = floor(it.position_min.x);
-        it.position_min.y = floor(it.position_min.y);
-
-
-        if it.border_color.w && (it.border.left > 0 || it.border.right > 0 || it.border.top > 0 || it.border.bottom > 0)
+        if it.on_commit
         {
-            // rec : Rectangle;
-            // rec.x      = it.position_min.x;
-            // rec.y      = it.position_min.y;
-            // rec.width  = it.size.x;
-            // rec.height = it.size.y;
-
-            // DrawRectangleLinesEx(rec, it.border_size, it.border_color);
-
-            draw_rect_outline(it.position_min, it.position_min + it.size, it.border.left, it.border.right, it.border.top, it.border.bottom, it.border_color);
-            draw_rect_outline(it.position_min - .{it.margin.left, it.margin.top}, it.position_min + it.size + .{it.margin.right, it.margin.bottom}, it.border.left, it.border.right, it.border.top, it.border.bottom, it.border_color);
-        }
-
-        if it.texture
-        {
-            // sprite : Sprite;
-            // sprite.texture       = <<it.texture;
-            // sprite.region.x      = it.texture_min.x;
-            // sprite.region.y      = it.texture_min.y;
-            // sprite.region.width  = it.texture_size.x;
-            // sprite.region.height = it.texture_size.y;
-
-            // draw_sprite(sprite, Vector2.{it.position_min.x, it.position_min.y}, color = it.color);
-
-            min_texture_uv := it.texture_min * .{1.0/it.texture.width, 1.0/it.texture.height};
-            texture_size_uv := it.texture_size * .{1.0/it.texture.width, 1.0/it.texture.height};
-
-            Simp.set_shader_for_images(it.texture);
-            draw_rect(it.position_min, it.size, min_texture_uv, texture_size_uv, it.color);
-        }
-        else if it.color.w
-        {
-            // rec : Rectangle;
-            // rec.x      = it.position_min.x;
-            // rec.y      = it.position_min.y;
-            // rec.width  = it.size.x;
-            // rec.height = it.size.y;
-
-            // DrawRectangleRec(rec, it.color);
-
-            Simp.set_shader_for_color(true);
-            draw_rect(it.position_min, it.size, .{}, .{}, it.color);
+            it.on_commit(it);
         }
     }
 }
@@ -631,6 +676,11 @@ pop_id :: inline ()
     {
         pop(*id_stack);
     }
+}
+
+get_index :: inline () -> u64
+{
+    return xx prepared_nodes.count;
 }
 
 get_id :: inline () -> u64
@@ -700,209 +750,10 @@ translate :: (node: *Glyph_Node, offset: Vector2)
     node.position_min += offset;
 }
 
-Button_State :: struct 
-{
-    #as clicked : bool;
-    hovered : bool;
-
-    index : int;
-    label_node : int;
-}
-
-button :: (label: string, args: ..Any, label_style: Glyph_Cache.Style_Description, pixels_per_em: u32, color : Color, hovered_color : Color) -> Button_State
-{
-    result : Button_State;
-    result.index = begin_node(label);
-
-    persistent_state, _ := find_or_add(*node_states, prepared_nodes[result.index].persistent_id);
-
-    mouse_position := GetMousePosition();
-
-    if persistent_state.last_position_min.x <= mouse_position.x &&
-        persistent_state.last_position_min.y <= mouse_position.y &&
-        persistent_state.last_position_min.x + persistent_state.last_size.x > mouse_position.x &&  
-        persistent_state.last_position_min.y + persistent_state.last_size.y > mouse_position.y
-    {
-        if IsMouseButtonReleased(xx MouseButton.LEFT)
-        {
-            result.clicked = true;
-        }  
-
-        result.hovered = true;
-    }
-
-    text_color := color;
-
-    if result.hovered
-    {
-        text_color = hovered_color;
-    }
-
-    result.label_node = draw_text(label, ..args, style = label_style, line_height = pixels_per_em * 1.2, pixels_per_em = pixels_per_em, color = text_color);
-
-    end_node(result.index);
-
-    return result;
-} @PrintLike
-
-
-glyph_cache_texture : Texture;
-
-draw_line :: (from: Vector2, to: Vector2, thick: float, color: Vector4) 
-{
-    Simp.set_shader_for_color(true);
-
-    diff := (to - from);
-    perp := Vector2.{-diff.y, diff.x};
-    normalize(*perp);
-
-    perp *= thick / 2;
-
-    from0 := from - perp;
-    from1 := from + perp;
-
-    to0 := to - perp;
-    to1 := to + perp;
-
-    Simp.immediate_quad(from0, from1, to1, to0, color);
-}
-
-draw_rect_outline :: (min_corner: Vector2, max_corner: Vector2, thick_left: float, thick_right: float, thick_top: float, thick_bottom: float, color: Vector4) 
-{
-    draw_line(min_corner + Vector2.{thick_left/2, thick_left/2}, Vector2.{min_corner.x + thick_left / 2, max_corner.y - thick_left / 2}, thick_left, color);
-
-    draw_line(Vector2.{min_corner.x + thick_bottom / 2, max_corner.y - thick_bottom / 2}, max_corner - Vector2.{thick_bottom/2, thick_bottom/2}, thick_bottom, color);
-
-    draw_line(max_corner - Vector2.{thick_right/2, thick_right/2}, Vector2.{max_corner.x - thick_right/2, min_corner.y + thick_right / 2}, thick_right, color);
-
-    draw_line(Vector2.{max_corner.x - thick_top/2, min_corner.y + thick_top/2}, min_corner + Vector2.{thick_top/2, thick_top/2}, thick_top, color);
-}
-
-draw_rect_outline :: inline (min_corner: Vector2, max_corner: Vector2, thick: float, color: Vector4) 
-{
-    draw_rect_outline(min_corner, max_corner, thick, thick, thick, thick, color);
-}
-
-draw_rect :: (position: Vector2, size: Vector2, region_min: Vector2, region_size: Vector2, color: Vector4) 
-{
-    p1 := position;
-    p2 := position + .{ size.x, 0};
-    p3 := position + size;
-    p4 := position + .{ 0, size.y };
-    
-    u1 := region_min;
-    u2 := region_min + .{ region_size.x, 0};
-    u3 := region_min + region_size;
-    u4 := region_min + .{ 0, region_size.y };
-
-    Simp.immediate_quad(p1, p2, p3, p4, color, u1, u2, u3, u4);
-}
-
-text :: (format: string, args: ..Any, style: Glyph_Cache.Style_Description, pixels_per_em: u32, line_height: float, position: Vector2 = .{}, color: Color) -> int {
-    text := tprint(format, ..args);
-    
-    cache_face := Glyph_Cache.find_best_face_for_style(style);
-
-    Glyph_Cache.bind_face(cache_face, pixels_per_em);
-
-    ft_face := Glyph_Cache.get_freetype_face(cache_face);
-
-    // if !ft_face.generic.data
-    // {
-    hb_font := hb_ft_font_create(ft_face, null);
-    defer hb_font_destroy(hb_font);
-
-    hb_ft_font_set_funcs(hb_font);
-
-    //    ft_face.generic.data = font;
-    //} 
-
-    // hb_font := cast(*hb_font_t) ft_face.generic.data;
-
-    pixels_per_unit := 1 / 64.0;
- 
-    buf := hb_buffer_create();
-    defer hb_buffer_destroy(buf);
-
-    hb_buffer_add_utf8(buf, text.data, xx text.count, 0, xx text.count);
-    hb_buffer_guess_segment_properties(buf);
-
-    // hb_buffer_set_direction(buf, .HB_DIRECTION_LTR);
-    // hb_buffer_set_script(buf, .HB_SCRIPT_LATIN);
-    // hb_buffer_set_language(buf, hb_language_from_string("en", -1));
-
-    features : [3]hb_feature_t;
-    hb_feature_from_string("kern", 4, *features[0]);
-    hb_feature_from_string("liga", 4, *features[1]);
-    hb_feature_from_string("clig", 4, *features[2]);
-
-    hb_shape(hb_font, buf, features.data, features.count);
-    
-    glyph_info := hb_buffer_get_glyph_infos(buf);
-    glyph_pos  := hb_buffer_get_glyph_positions(buf);
-    
-    cursor_x : float = position.x;
-    cursor_y : float = position.y;
-
-    push_id(format);
-    defer pop_id();
-
-    result := begin_node();
-
-    for glyph_pos
-    {
-        push_id(it_index);
-        defer pop_id();
-
-        // After hb_shape() these are not codepoints, they are glyph_indexes
-        glyph_index := glyph_info[it_index].codepoint;
-        
-        glyph, found := Glyph_Cache.get_glyph(glyph_index);
-
-		baseline_origin := Vector2.{ cursor_x, cursor_y };
-
-        x0 := baseline_origin.x + it.x_offset * pixels_per_unit + glyph.bearing_x;
-        y0 := baseline_origin.y - it.y_offset * pixels_per_unit - glyph.bearing_y;
-
-        s0_px := glyph.x;
-        t0_px := glyph.y;
-
-        {
-            set_content_size(.FIXED, .{ xx glyph.w, xx glyph.h });
-            set_position(.ABSOLUTE, .{ x0, y0 });
-            set_texture(*glyph_cache_texture, .{ xx s0_px, xx t0_px}, .{ xx glyph.w, xx glyph.h }, color);
-
-            node_index := begin_node();
-            end_node(node_index);
-        }
-
-        cursor_x += floor(it.x_advance * pixels_per_unit);
-        cursor_y -= floor(it.y_advance * pixels_per_unit);
-    }
-
-    for * children_of(result)
-    {
-        it.position_min.y += cast(float) (ft_face.ascender) / cast(float) ft_face.height * line_height; 
-    }
-
-    children_size := get_bounds(children_of(result));
-    set_content_size(.FIXED, .{children_size.x, line_height}, node_id = result);
-
-    end_node(result);
-
-    return result;
-} @PrintLike
-
 #scope_file 
 
 Hash :: #import "Hash";
 #import "Math";
 
-Simp :: #import "Simp";
-
-#import "Hash_Table";
 #import "IntroSort";
 #import "Basic";
-#import "Harfbuzz"(FREETYPE_SUPPORT=true);
-Glyph_Cache :: #import "Glyph_Cache";
-

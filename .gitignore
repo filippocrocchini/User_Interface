@@ -1,5 +1,6 @@
 .obsidian/
 .build/
+.vscode/
 
 *.exe
 *.pdb
