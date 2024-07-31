@@ -1,15 +1,6 @@
-groups         : [..] Node_Group;
-prepared_nodes : [..] Glyph_Node;
-node_stack     : [..] int;
-id_stack       : [..] u64;
+#scope_export
 
-default_node : Glyph_Node = .{ ignore_locks = true };
-next_node    : Glyph_Node;
-
-Node_Group_ID :: struct 
-{
-    id : int;
-}
+default_layout : Layout_Info;
 
 Sizing_Method :: enum 
 {
@@ -24,14 +15,9 @@ Positioning_Method :: enum
     ABSOLUTE;
 }
 
-GROUP_BUCKET_SIZE :: 16;
-
-Node_Group :: struct 
+Node_Group_ID :: struct 
 {
-    members : [GROUP_BUCKET_SIZE]int = ---;
-
-    count := 0;
-    next  := Node_Group_ID.{-1};
+    id : int;
 }
 
 Directional_Size :: struct 
@@ -49,45 +35,43 @@ Concatenation :: enum
     BOTTOM_TO_TOP;
 }
 
-Node_Locks :: struct 
+Node_On_Commit_Function :: #type (node: *Node) -> ();
+
+Positioning_Info :: struct 
 {
-    position          : bool;
-    content_size      : bool;
-    texture           : bool;
-    border            : bool;
-    padding           : bool;
-    margin            : bool;
-    alignment         : bool;
-    content_alignment : bool;
-    concatenation     : bool;
-    on_commit         : bool;
+    method       : Positioning_Method;
+    position_min : Vector2;
 }
 
-Node_On_Commit_Function :: #type (node: *Glyph_Node) -> void;
-
-Glyph_Node :: struct 
+Sizing_Info :: struct 
 {
-    positioning      : Positioning_Method;
-    position_min     : Vector2;
+    method       : Sizing_Method;
+    content_size : Vector2;
+}
 
-    sizing               : Sizing_Method;
-    content_size         : Vector2;
+Layout_Info :: struct
+{
+    positioning : Positioning_Info;
+    sizing      : Sizing_Info;
 
     border  : Directional_Size;
     padding : Directional_Size;
     margin  : Directional_Size;
 
-    vertical_alignment   : float;
-    horizontal_alignment : float;
-    content_vertical_alignment   : float;
-    content_horizontal_alignment : float;
+    alignment         : Vector2;
+    content_alignment : Vector2;
 
     concatenation : Concatenation;
 
     on_commit : Node_On_Commit_Function;
+}
+
+Node :: struct 
+{
+    using layout : Layout_Info;
 
     ignore_locks : bool;
-    locks        : Node_Locks;
+    locks        : Node_Locks(Layout_Info);
 
     // Set automatically 
     
@@ -100,12 +84,40 @@ Glyph_Node :: struct
     children      := Node_Group_ID.{-1};
 }
 
-get_default_node :: inline () -> *Glyph_Node
+Node_Locks :: struct($T : Type) 
 {
-    return *default_node;
+    #insert #run generate_locks_for_struct_members(T);
 }
 
-get_node :: (node_id: int) -> *Glyph_Node
+generate_locks_for_struct_members :: ($T : Type) -> string
+{
+    #if type_info(T).type == .STRUCT
+    {
+        t_info := type_info(T);
+        t_info_struct := cast(*Type_Info_Struct) type_info(T);
+
+        result : String_Builder;
+
+        for member : t_info_struct.members
+        {
+            for note : member.notes
+            {
+                if note == "@NoLock"
+                {
+                    continue member;
+                }
+            } 
+
+            print_to_builder(*result, "% : bool;\n", member.name);
+        }
+
+        return builder_to_string(*result);
+    } 
+
+    return "";
+}
+
+get_node :: (node_id: int) -> *Node
 {
     if node_id >= 0
     {
@@ -115,7 +127,7 @@ get_node :: (node_id: int) -> *Glyph_Node
     return *next_node;
 }
 
-set_concatenation :: inline (concatenation : Concatenation, node : *Glyph_Node = null)
+set_concatenation :: inline (concatenation : Concatenation, node : *Node = null)
 {
     the_node := node; 
     if !node 
@@ -132,7 +144,7 @@ set_concatenation :: inline (concatenation : Concatenation, node : *Glyph_Node =
     the_node.concatenation = concatenation;
 }
 
-set_alignment :: inline (horizontal : float, vertical : float, node : *Glyph_Node = null)
+set_alignment :: inline (horizontal : float, vertical : float, node : *Node = null)
 {
     the_node := node; 
     if !node 
@@ -146,11 +158,11 @@ set_alignment :: inline (horizontal : float, vertical : float, node : *Glyph_Nod
         the_node.locks.alignment = true;
     }
 
-    the_node.vertical_alignment   = vertical;
-    the_node.horizontal_alignment = horizontal;
+    the_node.alignment.x = horizontal;
+    the_node.alignment.y = vertical;
 }
 
-set_content_alignment :: inline (horizontal : float, vertical : float, node : *Glyph_Node = null)
+set_content_alignment :: inline (horizontal : float, vertical : float, node : *Node = null)
 {
     the_node := node; 
     if !node 
@@ -164,11 +176,11 @@ set_content_alignment :: inline (horizontal : float, vertical : float, node : *G
         the_node.locks.content_alignment = true;
     }
 
-    the_node.content_vertical_alignment   = vertical;
-    the_node.content_horizontal_alignment = horizontal;
+    the_node.content_alignment.x = horizontal;
+    the_node.content_alignment.y = vertical;
 }
 
-set_margin :: inline (margin_left: float, margin_right: float, margin_top: float, margin_bottom: float, node : *Glyph_Node = null)
+set_margin :: inline (margin_left: float, margin_right: float, margin_top: float, margin_bottom: float, node : *Node = null)
 {
     the_node := node; 
     if !node 
@@ -185,12 +197,12 @@ set_margin :: inline (margin_left: float, margin_right: float, margin_top: float
     the_node.margin = .{left = margin_left, right = margin_right, top = margin_top, bottom = margin_bottom};
 }
 
-set_margin :: inline (margin: float, node : *Glyph_Node = null)
+set_margin :: inline (margin: float, node : *Node = null)
 {
     set_margin(margin, margin, margin, margin, node = node);
 }
 
-set_padding :: inline (padding_left: float, padding_right: float, padding_top: float, padding_bottom: float, node : *Glyph_Node = null)
+set_padding :: inline (padding_left: float, padding_right: float, padding_top: float, padding_bottom: float, node : *Node = null)
 {
     the_node := node; 
     if !node 
@@ -207,12 +219,12 @@ set_padding :: inline (padding_left: float, padding_right: float, padding_top: f
     the_node.padding = .{left = padding_left, right = padding_right, top = padding_top, bottom = padding_bottom};
 }
 
-set_padding :: inline (padding: float, node : *Glyph_Node = null)
+set_padding :: inline (padding: float, node : *Node = null)
 {
     set_padding(padding, padding, padding, padding, node = node);
 }
 
-set_border :: inline (border_left: float, border_right: float, border_top: float, border_bottom: float, node : *Glyph_Node = null)
+set_border :: inline (border_left: float, border_right: float, border_top: float, border_bottom: float, node : *Node = null)
 {
     the_node := node; 
     if !node 
@@ -229,13 +241,12 @@ set_border :: inline (border_left: float, border_right: float, border_top: float
     the_node.border = .{left = border_left, right = border_right, top = border_top, bottom = border_bottom};
 }
 
-set_border :: inline (border: float, node : *Glyph_Node = null)
+set_border :: inline (border: float, node : *Node = null)
 {
     set_border(border, border, border, border, node = node);
 }
 
-/*
-set_texture :: inline (texture: *Texture, texture_min: Vector2, texture_size: Vector2, color: Color, node : *Glyph_Node = null)
+set_content_size :: inline (sizing_method: Sizing_Method, content_size: Vector2 = .{}, node : *Node = null)
 {
     the_node := node; 
     if !node 
@@ -245,40 +256,19 @@ set_texture :: inline (texture: *Texture, texture_min: Vector2, texture_size: Ve
 
     if !the_node.ignore_locks
     {
-        if the_node.locks.texture then return;
-        the_node.locks.texture = true;
+        if the_node.locks.sizing then return;
+        the_node.locks.sizing = true;
     }
 
-    the_node.texture      = texture;
-    the_node.texture_min  = texture_min;
-    the_node.texture_size = texture_size;
-    the_node.color        = color;
-}
-*/
-
-set_content_size :: inline (sizing: Sizing_Method, content_size: Vector2 = .{}, node : *Glyph_Node = null)
-{
-    the_node := node; 
-    if !node 
-    {
-        the_node = *next_node;
-    }
-
-    if !the_node.ignore_locks
-    {
-        if the_node.locks.content_size then return;
-        the_node.locks.content_size = true;
-    }
-
-    the_node.sizing = sizing;
+    the_node.sizing.method = sizing_method;
     
-    if sizing == .FIXED
+    if sizing_method == .FIXED
     {
-        the_node.content_size = content_size;
+        the_node.sizing.content_size = content_size;
     }
 }
 
-set_position :: inline (positioning: Positioning_Method, position: Vector2 = .{}, node : *Glyph_Node = null)
+set_position :: inline (positioning_method: Positioning_Method, position: Vector2 = .{}, node : *Node = null)
 {
     the_node := node; 
     if !node 
@@ -288,19 +278,19 @@ set_position :: inline (positioning: Positioning_Method, position: Vector2 = .{}
 
     if !the_node.ignore_locks
     {
-        if the_node.locks.position then return;
-        the_node.locks.position = true;
+        if the_node.locks.positioning then return;
+        the_node.locks.positioning = true;
     }
 
-    the_node.positioning = positioning;
+    the_node.positioning.method = positioning_method;
 
-    if positioning != .AUTO
+    if positioning_method != .AUTO
     {
-        the_node.position_min = position;
+        the_node.positioning.position_min = position;
     }
 }
 
-set_on_commit_callback :: inline (on_commit : Node_On_Commit_Function, node : *Glyph_Node = null)
+set_on_commit_callback :: inline (on_commit : Node_On_Commit_Function, node : *Node = null)
 {
     the_node := node; 
     if !node 
@@ -389,8 +379,8 @@ begin_node :: () -> int
     array_add(*node_stack, prepared_nodes.count);
     array_add(*prepared_nodes, next_node);
     
-    next_node       = default_node;
-    next_node.locks = .{};
+    next_node.layout = default_layout;
+    next_node.locks  = .{};
 
     self_index := prepared_nodes.count - 1;
     self       := *prepared_nodes[self_index];
@@ -432,7 +422,7 @@ end_node :: inline (index: int)
 
     for * node.children
     {
-        if it.positioning == .ABSOLUTE then continue;
+        if it.positioning.method == .ABSOLUTE then continue;
 
         size_alignment_direction_no_margin.y = max(size_alignment_direction_no_margin.y, it.size.y);
         size_alignment_direction_no_margin.x = max(size_alignment_direction_no_margin.x, it.size.x);
@@ -467,7 +457,7 @@ end_node :: inline (index: int)
 
     for * node.children
     {
-        if it.positioning == .ABSOLUTE then continue;
+        if it.positioning.method == .ABSOLUTE then continue;
 
         if cursor_direction.x < 0
         {
@@ -532,14 +522,14 @@ end_node :: inline (index: int)
 
     total_size := size_alignment_direction * concatenation_direction + cursor * alignment_direction;
 
-    if node.sizing == .AUTO
+    if node.sizing.method == .AUTO
     {
-        node.content_size = total_size;
+        node.sizing.content_size = total_size;
     }
 
     // Calculate final node size
 
-    node.size = node.content_size;
+    node.size = node.sizing.content_size;
     node.size += Vector2.{ node.border.left  + node.border.right,  node.border.top  + node.border.bottom };
     node.size += Vector2.{ node.padding.left + node.padding.right, node.padding.top + node.padding.bottom };
 
@@ -547,24 +537,21 @@ end_node :: inline (index: int)
 
     if !node.locks.content_alignment
     {
-        node.content_horizontal_alignment = node.horizontal_alignment;
-        node.content_vertical_alignment   = node.vertical_alignment;
+        node.content_alignment = node.alignment;
     }
 
     // Align children ignoring margins
 
-    content_alignment := Vector2.{node.content_horizontal_alignment, node.content_vertical_alignment};
-
     for * node.children
     {
-        if it.positioning == .AUTO
+        if it.positioning.method == .AUTO
         {
             margin_top_left     := Vector2.{it.margin.left, it.margin.top};
             margin_bottom_right := Vector2.{it.margin.right, it.margin.bottom};
 
             it_size_including_margin := it.size + margin_top_left + margin_bottom_right;
 
-            translate(it, ((total_size - it_size_including_margin) * content_alignment + margin_top_left) * concatenation_direction);
+            translate(it, ((total_size - it_size_including_margin) * node.content_alignment + margin_top_left) * concatenation_direction);
         }
     }
 
@@ -572,22 +559,22 @@ end_node :: inline (index: int)
 
     for * node.children
     {
-        if it.positioning == .ABSOLUTE
+        if it.positioning.method == .ABSOLUTE
         {
-            offset += node.position_min;
+            offset += node.positioning.position_min;
         }
 
         translate(it, offset);
     }
 
-    if node.sizing == .FIXED
+    if node.sizing.method == .FIXED
     {
-        offset := node.content_size - total_size;
-        offset *= Vector2.{node.horizontal_alignment, node.vertical_alignment};
+        offset := node.sizing.content_size - total_size;
+        offset *= node.alignment;
 
         for * node.children
         {
-            if it.positioning != .AUTO then continue;
+            if it.positioning.method != .AUTO then continue;
 
             translate(it, offset);
         }
@@ -599,7 +586,7 @@ end_node :: inline (index: int)
 commit_prepared_nodes :: ()
 {
 
-    compare_nodes :: (a: Glyph_Node, b: Glyph_Node) -> s64
+    compare_nodes :: (a: Node, b: Node) -> s64
     {
         delta := a.z_index - b.z_index;
         if delta < 0 return -1;
@@ -693,18 +680,18 @@ update_bounds :: inline (index: int) -> Vector2
     node := *prepared_nodes[index];
     offset := Vector2.{};
 
-    if node.sizing == 
+    if node.sizing.method == 
     {
         case .FIXED;
         // Nothing
         case .AUTO;
             if node.children.id >= 0
             {
-                node.content_size, offset = get_bounds(node.children);
+                node.sizing.content_size, offset = get_bounds(node.children);
             }
     }
 
-    node.size = node.content_size
+    node.size = node.sizing.content_size
         + 2 * Vector2.{node.border_size, node.border_size}
         + Vector2.{node.padding.left + node.padding.right, node.padding.top + node.padding.bottom};
 
@@ -718,17 +705,17 @@ get_bounds :: (nodes: Node_Group_ID) -> size: Vector2, min_pos: Vector2
 
     for * nodes
     {
-        min_pos.x = min(min_pos.x, it.position_min.x - it.margin.left);
-        min_pos.x = min(min_pos.x, it.position_min.x + it.size.x + it.margin.right);
+        min_pos.x = min(min_pos.x, it.positioning.position_min.x - it.margin.left);
+        min_pos.x = min(min_pos.x, it.positioning.position_min.x + it.size.x + it.margin.right);
 
-        max_pos.x = max(max_pos.x, it.position_min.x - it.margin.left);
-        max_pos.x = max(max_pos.x, it.position_min.x + it.size.x + it.margin.right);
+        max_pos.x = max(max_pos.x, it.positioning.position_min.x - it.margin.left);
+        max_pos.x = max(max_pos.x, it.positioning.position_min.x + it.size.x + it.margin.right);
 
-        min_pos.y = min(min_pos.y, it.position_min.y - it.margin.top);
-        min_pos.y = min(min_pos.y, it.position_min.y + it.size.y + it.margin.bottom);
+        min_pos.y = min(min_pos.y, it.positioning.position_min.y - it.margin.top);
+        min_pos.y = min(min_pos.y, it.positioning.position_min.y + it.size.y + it.margin.bottom);
 
-        max_pos.y = max(max_pos.y, it.position_min.y - it.margin.top);
-        max_pos.y = max(max_pos.y, it.position_min.y + it.size.y + it.margin.bottom);
+        max_pos.y = max(max_pos.y, it.positioning.position_min.y - it.margin.top);
+        max_pos.y = max(max_pos.y, it.positioning.position_min.y + it.size.y + it.margin.bottom);
     }
 
     return max_pos - min_pos, min_pos;
@@ -740,17 +727,36 @@ translate :: inline (index: int, offset: Vector2)
     translate(node, offset);
 }
 
-translate :: (node: *Glyph_Node, offset: Vector2)
+translate :: (node: *Node, offset: Vector2)
 {
     for * node.children
     {
         translate(it, offset);
     }
 
-    node.position_min += offset;
+    node.positioning.position_min += offset;
 }
 
-#scope_file 
+#scope_module
+
+Node_Group :: struct 
+{
+    members : [GROUP_BUCKET_SIZE]int = ---;
+
+    count := 0;
+    next  := Node_Group_ID.{-1};
+}
+
+GROUP_BUCKET_SIZE :: 16;
+
+groups         : [..] Node_Group;
+prepared_nodes : [..] Node;
+node_stack     : [..] int;
+id_stack       : [..] u64;
+
+next_node      : Node;
+
+#scope_file
 
 Hash :: #import "Hash";
 #import "Math";
